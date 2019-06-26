@@ -25,6 +25,14 @@ else:
         return types.MethodType(func, obj, obj.__class__)
 
 
+def normal(lon):
+    if lon > np.pi:
+        return lon - 2.0 * np.pi
+    elif lon < -np.pi:
+        return lon + 2.0 * np.pi
+    else:
+        return lon
+
 
 def normalize_cords(lat, lon):
     """ Returned lat, and lon to be in radians and the same 
@@ -147,8 +155,18 @@ class RegionSpec:
                 return self.name, self.in_point, self.points.flatten()
 
             elif self.type == 'ellipse':
-                return self.ellipse()
+                if self._DEBUG_ > 0:
+                    print("DEBUG: Using the ellipse method for region generation")
 
+                # Convert ellipse center point from degrees to radians
+                self.in_point[0], self.in_point[1] = normalize_cords(
+                                                        self.in_point[0],
+                                                        self.in_point[1])
+
+                self.points = self.ellipse(self.in_point[0], self.in_point[1],
+                                           self.semimajor, self.semiminor,
+                                           self.orientation)
+                return self.name, self.in_point, self.points.flatten()
 
 
     def circle(self, center_lat, center_lon, radius):
@@ -201,11 +219,53 @@ class RegionSpec:
         return np.array(ll)
 
 
+    def ellipse(self, center_lat, center_lon, semi_major, semi_minor, orientation):
+
+        P = []
+
+        # Convert ellipse center from (lat,lon) to Cartesian
+        C = latlon_to_xyz(center_lat, center_lon, 1.0)
+
+        # Convert semi-major and semi-minor axis lengths from meters to radians
+        semi_major = semi_major / EARTH_RADIUS
+        semi_minor = semi_minor / EARTH_RADIUS
+
+        # Convert orientation angle to radians
+        orientation = orientation * np.pi / 180.0
+
+
+        # Find a point not equal to C or -C
+        K = np.zeros(3)
+        K[0] = 0
+        K[1] = 0
+        K[2] = 1
+
+        if abs(np.dot(K,C)) >= 0.9:
+            K[0] = 1
+            K[1] = 0
+            K[2] = 0
+
+        # S is then a vector orthogonal to C
+        S = np.cross(C, K)
+        S = S / np.linalg.norm(S)
+
+        for r in np.linspace(0.0, 2.0*np.pi, 100):
+            angle = r - orientation
+            radius = np.sqrt((semi_major * np.cos(angle))**2 + (semi_minor * np.sin(angle))**2)
+            P0 = rotate_about_vector(C, S, radius)
+            d = rotate_about_vector(P0, C, r)
+            # Rotation angle should probably be based on a*cos(t) and b*sin(t)?
+            P.append(rotate_about_vector(P0, C, r))
+
+        ll = []
+        # TODO: The efficency here can be improved for memory
+        # and probably comp time
+        for i in range(len(P)):
+            ll.append(xyz_to_latlon(P[i])) # Convert back to latlon
+
+        return np.array(ll)
+
+
     def square(self):
         """ """
         raise NotImplementedError("SQAURE FUNCITON "+NOT_IMPLEMENTED_ERROR)
-
-
-    def ellipse(self):
-        """ """
-        raise NotImplementedError("ELLIPSE FUNCITON "+NOT_IMPLEMENTED_ERROR)
