@@ -19,6 +19,7 @@ class LimitedArea():
     def __init__(self,
                  mesh_file,
                  region,
+                 plotting,
                  regionFormat='points',
                  format='NETCDF3_64BIT_OFFSET',
                  *args,
@@ -42,6 +43,7 @@ class LimitedArea():
         # Keyword arguments
         self._DEBUG_ = kwargs.get('DEBUG', 0)
         self.boundary = kwargs.get('markNeighbors', 'search')
+        self.plotting = plotting
         self.cdf_format = format
 
         # Check to see that all of the meshes exists and that they are
@@ -70,7 +72,11 @@ class LimitedArea():
         """ Generate the boundary region of the given region for the given mesh(es). """
 
         # Call the regionSpec to generate `name, in_point, boundaries`
-        name, inPoint, boundaries= self.regionSpec.gen_spec(self.region_file, **kwargs)
+        name, inPoint, boundaries= self.regionSpec.gen_spec(self.region_file, self.plotting, **kwargs)
+
+        if self.plotting:
+            self.plot_region(inPoint, boundaries)
+            return
 
         if self._DEBUG_ > 0:
             print("DEBUG: Region Spec has been generated")
@@ -399,3 +405,60 @@ class LimitedArea():
 
         return bdyMaskCell
 
+    # Plot the specified region
+    def plot_region(self, inPoint, boundaries):
+        """ Create an plot showing the user-specified region.
+        The region boundary is plotted as a blue line on an orthographic
+        projection with a blue marble-like background image
+
+        inPoint - A point that lies within the regional area.
+        boundaries - A list of lists of latitude and longitude coordinates
+                 of a boundary.
+
+                 [[lat0, lon0, lat1, lon1, lat2, lon2, ..., latN, lonN], [...]]
+
+        Note: Coordinates are in radians.
+        """
+
+        try:
+            import cartopy.crs as ccrs
+            import cartopy.feature as cf
+        except:
+            print('Could not import cartopy!')
+            return
+
+        try:
+            import matplotlib.pyplot as plt
+        except:
+            print('Could not import matplotlib!')
+            return
+
+        import math
+
+        rad2deg = 180.0 / math.pi
+
+        proj = ccrs.PlateCarree(rad2deg * inPoint[1])
+
+        ax = plt.axes(projection=proj)
+        ax.stock_img()
+
+        min_extent_lon = min(boundaries[0][1::2]) * rad2deg - 10.0
+        max_extent_lon = max(boundaries[0][1::2]) * rad2deg + 10.0
+        min_extent_lat = max(min(boundaries[0][0::2]) * rad2deg - 10.0, -90.0)
+        max_extent_lat = min(max(boundaries[0][0::2]) * rad2deg + 10.0, 90.0)
+        ax.set_extent((min_extent_lon, max_extent_lon, min_extent_lat, max_extent_lat),
+                      crs=ccrs.PlateCarree())
+
+        ax.add_feature(cf.COASTLINE)
+        ax.add_feature(cf.BORDERS)
+
+        for boundary in boundaries:
+            latbdy = boundary[0::2] * rad2deg
+            lonbdy = boundary[1::2] * rad2deg
+
+            plt.plot(lonbdy, latbdy,
+                     color='blue', linewidth=1.0,
+                     transform=ccrs.Geodetic()
+                     )
+
+        plt.savefig('region.png')
