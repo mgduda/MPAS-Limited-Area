@@ -422,13 +422,15 @@ class LimitedArea():
 
         try:
             import cartopy.crs as ccrs
-            import cartopy.feature as cf
+            import cartopy.feature as cfeature
         except:
             print('Could not import cartopy!')
             return
 
         try:
             import matplotlib.pyplot as plt
+            import matplotlib.ticker as mticker
+            import matplotlib.patches as mpatches
         except:
             print('Could not import matplotlib!')
             return
@@ -437,28 +439,78 @@ class LimitedArea():
 
         rad2deg = 180.0 / math.pi
 
-        proj = ccrs.PlateCarree(rad2deg * inPoint[1])
+        if len(boundaries) == 2:
+            proj = ccrs.PlateCarree(rad2deg * inPoint[1])
+            ax = plt.axes(projection=proj)
 
-        ax = plt.axes(projection=proj)
-        ax.stock_img()
+            latbdy = np.concatenate((np.flip(boundaries[0][0::2]), boundaries[1][0::2])) * rad2deg
+            lonbdy = np.concatenate((np.flip(boundaries[0][1::2]), boundaries[1][1::2])) * rad2deg
 
-        min_extent_lon = min(boundaries[0][1::2]) * rad2deg - 10.0
-        max_extent_lon = max(boundaries[0][1::2]) * rad2deg + 10.0
-        min_extent_lat = max(min(boundaries[0][0::2]) * rad2deg - 10.0, -90.0)
-        max_extent_lat = min(max(boundaries[0][0::2]) * rad2deg + 10.0, 90.0)
-        ax.set_extent((min_extent_lon, max_extent_lon, min_extent_lat, max_extent_lat),
-                      crs=ccrs.PlateCarree())
+            ax.set_extent((-180.0, 180.0, -90.0, 90.0), crs=ccrs.PlateCarree())
 
-        ax.add_feature(cf.COASTLINE)
-        ax.add_feature(cf.BORDERS)
+        else:
+            proj = ccrs.Stereographic(rad2deg * inPoint[0], rad2deg * inPoint[1])
+            ax = plt.axes(projection=proj)
+
+            latbdy = boundaries[0][0::2] * rad2deg
+            lonbdy = boundaries[0][1::2] * rad2deg
+
+            # Here we need a way of determining the "extent" (roughly, the diameter
+            # in meters) of the region given the latbdy and lonbdy arrays
+            extent = 3000000.0
+
+            scaling = 1.25
+            ax.set_extent([-scaling * extent, scaling * extent, -scaling * extent, scaling * extent], crs=proj)
+
+
+        ax.add_feature(cfeature.OCEAN)
+        ax.add_feature(cfeature.LAND)
+        ax.add_feature(cfeature.COASTLINE, linewidth=0.1)
+        ax.add_feature(cfeature.BORDERS, linewidth=0.1)
+        ax.add_feature(cfeature.LAKES, linewidth=0.1)
+        ax.add_feature(cfeature.RIVERS, linewidth=0.1)
+        ax.add_feature(cfeature.STATES, linewidth=0.1)
+
+        gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=False,
+                          linewidth=0.1, color='black', alpha=1.0, linestyle='--')
+
+        xticks = np.arange(-180, 180, 10)
+        yticks = np.arange(-90, 90, 10)
+
+        gl.ylocator = mticker.FixedLocator(yticks)
+        gl.xlocator = mticker.FixedLocator(xticks)
+
+        # Hack for plotting polygons...
+        if np.min(latbdy) == np.max(latbdy):
+            latbdy[0] = latbdy[0] * 0.999999
+
+        nbdy = len(lonbdy)
+        poly_corners = np.zeros((nbdy+1, 2), np.float64)
+        poly_corners[0:nbdy,0] = np.asarray(lonbdy)
+        poly_corners[0:nbdy,1] = np.asarray(latbdy)
+        poly_corners[nbdy,:] = poly_corners[0,:]
+
+        poly = mpatches.Polygon(poly_corners, closed=True, ec='black', fill=True, lw=0.1, fc='black', alpha=0.3, transform=ccrs.Geodetic())
+        ax.add_patch(poly)
 
         for boundary in boundaries:
             latbdy = boundary[0::2] * rad2deg
             lonbdy = boundary[1::2] * rad2deg
 
-            plt.plot(lonbdy, latbdy,
-                     color='blue', linewidth=1.0,
+            nbdy = len(lonbdy)
+
+            lon_corners = np.zeros((nbdy+1), np.float64)
+            lon_corners[0:nbdy] = np.asarray(lonbdy)
+            lon_corners[nbdy] = lon_corners[0]
+
+            lat_corners = np.zeros((nbdy+1), np.float64)
+            lat_corners[0:nbdy] = np.asarray(latbdy)
+            lat_corners[nbdy] = lat_corners[0]
+
+            # plt.plot(lonbdy, latbdy,
+            plt.plot(lon_corners, lat_corners,
+                     color='blue', linewidth=0.5,
                      transform=ccrs.Geodetic()
                      )
 
-        plt.savefig('region.png')
+        plt.savefig('region.png', dpi=150, bbox_inches='tight')
