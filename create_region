@@ -28,6 +28,8 @@ if __name__ == "__main__":
                           help='Points file specifying the MPAS regional area',
                           type=str)
     required.add_argument('grid',
+                          nargs='?',
+                          default=None,
                           help=('Global MPAS grid file. Either a grid.nc or'
                                 ' static.nc file'),
                           type=str)

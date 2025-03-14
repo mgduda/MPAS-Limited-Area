@@ -48,11 +48,12 @@ class LimitedArea():
 
         # Check to see that all of the meshes exists and that they are
         # valid netCDF files.
-        if os.path.isfile(mesh_file):
-            self.mesh = MeshHandler(mesh_file, 'r', *args, **kwargs)
-        else:
-            print("ERROR: Mesh file was not found", mesh_file)
-            sys.exit(-1)
+        if not self.plotting:
+            if os.path.isfile(mesh_file):
+                self.mesh = MeshHandler(mesh_file, 'r', *args, **kwargs)
+            else:
+                print("ERROR: Mesh file was not found", mesh_file)
+                sys.exit(-1)
 
         # Check to see the points file exists and if it exists, then parse it
         # and see that is is specified correctly!
@@ -75,7 +76,7 @@ class LimitedArea():
         name, inPoint, boundaries= self.regionSpec.gen_spec(self.region_file, self.plotting, **kwargs)
 
         if self.plotting:
-            self.plot_region(inPoint, boundaries)
+            self.plot_region(inPoint, boundaries, name)
             return
 
         if self._DEBUG_ > 0:
@@ -405,8 +406,9 @@ class LimitedArea():
 
         return bdyMaskCell
 
+
     # Plot the specified region
-    def plot_region(self, inPoint, boundaries):
+    def plot_region(self, inPoint, boundaries, region_name):
         """ Create an plot showing the user-specified region.
         The region boundary is plotted as a blue line on an orthographic
         projection with a blue marble-like background image
@@ -452,8 +454,15 @@ class LimitedArea():
             proj = ccrs.Stereographic(rad2deg * inPoint[0], rad2deg * inPoint[1])
             ax = plt.axes(projection=proj)
 
-            latbdy = boundaries[0][0::2] * rad2deg
-            lonbdy = boundaries[0][1::2] * rad2deg
+            latbdy_tmp = boundaries[0][0::2]
+            lonbdy_tmp = boundaries[0][1::2]
+
+            lonbdy, latbdy = self.ccw_order(inPoint[1], inPoint[0],
+                                       boundaries[0][1::2], boundaries[0][0::2],
+                                       proj)
+
+            lonbdy = lonbdy * rad2deg
+            latbdy = latbdy * rad2deg
 
             # Here we need a way of determining the "extent" (roughly, the diameter
             # in meters) of the region given the latbdy and lonbdy arrays
@@ -514,3 +523,45 @@ class LimitedArea():
                      )
 
         plt.savefig('region.png', dpi=150, bbox_inches='tight')
+
+
+    def plane_angle(self, ax, ay, bx, by, cx, cy):
+        """ Computes the angle between the vectors AB and AC.
+        """
+
+        import math
+
+        b = [bx - ax, by - ay]
+        c = [cx - ax, cy - ay]
+
+        theta = math.acos(np.dot(b, c) / np.linalg.norm(b) / np.linalg.norm(c))
+        if np.cross([bx - ax, by - ay], [cx - ax, cy - ay]) < 0.0:
+            theta = -theta
+
+        return theta
+
+
+    def ccw_order(self, cenLon, cenLat, lons, lats, proj):
+        """ Place arrays of longitude and latitude in counter-clockwise (CCW)
+        order. The cenLon and cenLat values define a point that is within the
+        polygon described by the lons and lats arrays.
+        """
+
+        import cartopy.crs as ccrs
+
+        cenLonProj, cenLatProj = proj.transform_point(cenLon, cenLat, ccrs.PlateCarree())
+        coordsProj = proj.transform_points(ccrs.PlateCarree(), lons, lats)
+
+        stride = max(1, int(lons.size / 360))
+
+        lonsProj = coordsProj[::stride,0]
+        latsProj = coordsProj[::stride,1]
+
+        sumangle = 0.0
+        for i in range(lonsProj.size):
+            sumangle = sumangle + self.plane_angle(cenLon, cenLat, lonsProj[i-1], latsProj[i-1], lonsProj[i], latsProj[i])
+
+        if sumangle > 0.0:
+            return lons, lats
+        else:
+            return lons[::-1], lats[::-1]
